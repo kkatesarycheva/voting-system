@@ -1,0 +1,155 @@
+# School Prefect Voting System
+
+## Overview
+
+This is a local web application designed for schools to manage and run elections for prefects.
+
+The system allows teachers to vote, administrators to manage candidates, and IT staff to upload student data easily.
+
+The application runs **locally on a computer** and does not require any external services or internet connection.
+
+---
+
+## Technologies Used
+
+* Node.js (backend runtime)
+* React (frontend interface)
+* SQLite (local database)
+
+---
+
+## Key Features
+
+### IT Administrator
+
+* Upload student list using an Excel (.xlsx) file
+* Manage candidate cards
+* System automatically extracts student names
+* No manual data cleaning required
+* Upload pictures of students
+
+### Admin / Headteacher
+
+* Manage elections
+* View results
+* Control when voting is open or closed
+* Add techers
+* Manage candidate cards
+
+### Teachers
+
+* Log in securely
+* Vote for up to ten Prefects
+* Vote only once
+
+---
+
+## System Requirements
+
+* A computer (Windows or Mac)
+* Internet browser (Chrome, Edge, Safari, etc.)
+* Node.js installed
+
+---
+
+## Installation Instructions
+
+### 1. Install Node.js (First Time Only)
+
+If not already installed:
+
+1. Install Node Version Manager (nvm)
+2. Open Terminal
+3. Run:
+
+```bash
+\. "$HOME/.nvm/nvm.sh"
+nvm install 24
+nvm use 24
+```
+
+---
+
+### 2. Open the Project
+
+Open Terminal and navigate to the project folder:
+
+```bash
+cd path/to/prefect-election-voting
+```
+
+---
+
+### 3. Install Required Packages
+
+Run:
+
+```bash
+npm install
+```
+
+---
+
+### 4. Start the Application
+
+Run:
+
+```bash
+npm run dev
+```
+
+---
+
+### 5. Open the Website
+
+After running the command, you will see a link like:
+
+```bash
+http://localhost:3000
+```
+
+Open this link in your browser.
+
+---
+
+## Using the System
+
+### Uploading Students (IT Admin)
+
+1. Log in as IT Administrator
+2. Upload the Excel file provided by the school system (or add one by one)
+3. The system will automatically:
+
+   * Extract student names
+   * Create candidate entries
+4. Uploaad student photos (name files with student ID (moodle roll number)) as a batch or one by one
+
+---
+
+### Voting (Teachers)
+
+1. Log in with teacher account
+2. Select up to ten candidates
+3. Submit vote
+
+Each teacher can only vote once.
+
+---
+
+### Viewing Results (Admin)
+
+* Access results dashboard
+* See vote counts for each candidate
+* Close election when finished
+
+---
+
+## Notes
+
+* The system runs entirely locally — no data is sent online
+
+---
+
+## Support
+
+For technical issues, contact the IT Administrator or the developer who provided this system.
