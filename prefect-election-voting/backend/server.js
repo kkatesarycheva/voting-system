@@ -311,7 +311,7 @@ app.post("/api/photos/upload", (req, res, next) => {
     
 
   if (!req.files || req.files.length === 0) {
-    return res.status(400).json({ error: \"No files uploaded" });
+    return res.status(400).json({ error: "No files uploaded" });
   }
 
   const results = [];
