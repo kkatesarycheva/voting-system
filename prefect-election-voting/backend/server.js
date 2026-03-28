@@ -260,7 +260,7 @@ app.post("/api/candidates/parse-xlsx", authenticate, requireRole("admin", "it_ad
     const candidates = rows
       .map((row) => {
         const firstName = (row["Pupil 1st name"] || row["Pupil 1st Name"] || "").toString().trim();
-        const surname = (row[\"Pupil surname"] || row["Pupil Surname"] || "").toString().trim();
+        const surname = (row["Pupil surname"] || row["Pupil Surname"] || "").toString().trim();
         const id = (row["ID"] || row["Id"] || row["id"] || row["Roll number"] || row["Roll No"] || row["Student ID"] || row["Pupil ID"] || "").toString().trim();
         if (!firstName && !surname) return null;
         return { id, name: `${firstName} ${surname}`.trim(), year: "" };
