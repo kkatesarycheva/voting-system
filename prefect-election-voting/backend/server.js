@@ -10,8 +10,7 @@ const fs = require("fs");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// Create uploads directory if it doesn't exist
-const uploadDir = path.join(__dirname, "uploads");
+const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -31,7 +30,7 @@ const photoUpload = multer({ storage: photoStorage, limits: { fileSize: 5 * 1024
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret-in-production";
-const DB_PATH = path.join(__dirname, "voting.db");
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "voting.db");
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -41,8 +40,7 @@ app.use(cors());
 app.use(express.json());
 
 
-// Serve uploaded photos as static files
-app.use("uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(uploadDir));
 
 // ─── Auth Middleware ───────────────────────────────────────────────
 function authenticate(req, res, next) {
@@ -335,6 +333,14 @@ app.post("/api/photos/upload", (req, res, next) => {
     });    
   });
 });
+
+const distDir = path.join(__dirname, "../dist");
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(distDir, "index.html"));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Voting server running on http://localhost:${PORT}`);

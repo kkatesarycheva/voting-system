@@ -1,0 +1,14 @@
+node_modules
+backend/node_modules
+dist
+data
+.git
+.gitignore
+*.md
+*.db
+*.db-wal
+*.db-shm
+backend/uploads
+backend/voting.db
+docker-compose.yml
+deploy.sh

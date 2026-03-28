@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const fs = require("fs");
 const path = require("path");
 
-const DB_PATH = path.join(__dirname, "voting.db");
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "voting.db");
 const db = new Database(DB_PATH);
 
 db.pragma("journal_mode = WAL");

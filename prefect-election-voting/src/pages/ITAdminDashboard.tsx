@@ -21,7 +21,7 @@ interface ParsedCandidate {
   year: string;
 }
 
-const API_BASE = "http://localhost:3001";
+const API_BASE = "";
 
 const ITAdminDashboard = () => {
   const { isLoggedIn, isITAdmin, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto } = useElection();
