@@ -6,7 +6,7 @@ cd "$SCRIPT_DIR"
 
 echo "==> Building and deploying voting-app..."
 
-docker compose down --remove-orphans
+docker compose down
 docker compose up -d --build
 
 echo "==> Waiting for container to start..."
