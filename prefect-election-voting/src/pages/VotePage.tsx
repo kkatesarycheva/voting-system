@@ -38,10 +38,12 @@ const VotePage = () => {
 
   const selectedPrefects = candidates.filter((c) => votes.prefects.includes(c.id));
 
-  const handleConfirmSubmit = () => {
-    submitVote();
-    setShowConfirm(false);
-    navigate("/confirmation");
+  const handleConfirmSubmit = async () => {
+    const success = await submitVote();
+    if (success) {
+      setShowConfirm(false);
+      navigate("/confirmation");
+    }
   };
 
   if (!isLoggedIn || hasVoted) {

@@ -1,10 +1,18 @@
-import React, { createContext, useContext, useState, useMemo, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useMemo, useEffect, ReactNode, useCallback } from "react";
 import { Candidate, VoteSelection, Teacher } from "./mockData";
-import { saveCandidates, loadCandidates, saveVotes, loadVotes, saveTeachers, loadTeachers, saveSetting, loadSetting } from "./storage";
+import { request, ApiError } from "./api";
 
 interface StoredVote {
   teacherEmail: string;
   selections: VoteSelection;
+}
+
+interface AuthUser {
+  id: number;
+  name: string;
+  email: string;
+  role: "admin" | "it_admin" | "teacher";
+  has_voted: boolean;
 }
 
 interface ElectionContextType {
@@ -36,19 +44,20 @@ interface ElectionContextType {
   isLoading: boolean;
 
   // Actions
-  login: (email: string, password: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   setVotes: (votes: VoteSelection) => void;
-  submitVote: () => void;
-  toggleVoting: () => void;
-  addCandidate: (candidate: Candidate) => void;
-  removeCandidate: (id: string) => void;
-  removeAllCandidates: () => void;
-  updateCandidate: (id: string, updates: Partial<Candidate>) => void;
-  updateCandidatePhoto: (id: string, photo: string) => void;
-  addTeacher: (email: string) => void;
-  removeTeacher: (id: string) => void;
-  changePassword: (oldPassword: string, newPassword: string) => boolean;
+  submitVote: () => Promise<boolean>;
+  toggleVoting: () => Promise<boolean>;
+  addCandidate: (candidate: Candidate) => Promise<boolean>;
+  removeCandidate: (id: string) => Promise<boolean>;
+  removeAllCandidates: () => Promise<boolean>;
+  updateCandidate: (id: string, updates: Partial<Candidate>) => Promise<boolean>;
+  updateCandidatePhoto: (id: string, photo: string) => Promise<boolean>;
+  addTeacher: (email: string) => Promise<boolean>;
+  removeTeacher: (id: string) => Promise<boolean>;
+  changePassword: (oldPassword: string, newPassword: string) => Promise<boolean>;
+  refreshData: () => Promise<void>;
 }
 
 const ElectionContext = createContext<ElectionContextType | null>(null);
@@ -59,10 +68,8 @@ export const useElection = () => {
   return ctx;
 };
 
-const defaultTeachers: Teacher[] = [
-  { id: "t1", name: "Admin", email: "admin@school.com", hasVoted: false },
-  { id: "t2", name: "IT Administrator", email: "it@school.com", hasVoted: false },
-];
+const AUTH_TOKEN_KEY = "auth_token";
+const AUTH_USER_KEY = "auth_user";
 
 export const ElectionProvider = ({ children }: { children: ReactNode }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -74,69 +81,94 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
   const [votes, setVotes] = useState<VoteSelection>({ prefects: [] });
   const [allVotes, setAllVotes] = useState<StoredVote[]>([]);
   const [candidateList, setCandidateList] = useState<Candidate[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>(defaultTeachers);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [serverPrefectResults, setServerPrefectResults] = useState<{ name: string; votes: number }[]>([]);
 
-  // Load data from IndexedDB on mount
+  const hydrateFromBackend = useCallback(async (token: string, user: AuthUser) => {
+    const candidatesResp = await request<any[]>("/api/candidates", { token });
+    const normalizedCandidates: Candidate[] = candidatesResp.map((c) => ({
+      id: String(c.id),
+      name: c.name || "",
+      photo: c.photo || "",
+      year: c.year || "",
+    }));
+    setCandidateList(normalizedCandidates);
+
+    if (user.role === "admin" || user.role === "it_admin") {
+      const teachersResp = await request<any[]>("/api/teachers", { token });
+      const normalizedTeachers: Teacher[] = teachersResp.map((t) => ({
+        id: String(t.id),
+        name: t.name || "",
+        email: t.email || "",
+        hasVoted: !!t.has_voted,
+      }));
+      setTeachers(normalizedTeachers);
+    } else {
+      setTeachers([]);
+    }
+
+    if (user.role === "admin") {
+      const resultsResp = await request<any>("/api/results", { token });
+      setServerPrefectResults(Array.isArray(resultsResp?.prefects) ? resultsResp.prefects : []);
+      const turnout = resultsResp?.turnout;
+      if (turnout && typeof turnout.total === "number" && typeof turnout.voted === "number") {
+        const generated: StoredVote[] = Array.from({ length: turnout.voted }, (_, idx) => ({
+          teacherEmail: `teacher-${idx + 1}@generated.local`,
+          selections: { prefects: [] },
+        }));
+        setAllVotes(generated);
+      } else {
+        setAllVotes([]);
+      }
+      setVotingOpen(true);
+    } else {
+      setAllVotes([]);
+      setServerPrefectResults([]);
+      setVotingOpen(!user.has_voted);
+    }
+  }, []);
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [storedCandidates, storedVotes, storedTeachers, storedVotingOpen] = await Promise.all([
-          loadCandidates(),
-          loadVotes(),
-          loadTeachers(),
-          loadSetting("votingOpen", true),
-        ]);
+    const bootstrap = async () => {
+      const token = localStorage.getItem(AUTH_TOKEN_KEY);
+      const userRaw = localStorage.getItem(AUTH_USER_KEY);
 
-        if (storedCandidates.length > 0) {
-          setCandidateList(storedCandidates);
-        }
-        if (storedVotes.length > 0) {
-          setAllVotes(storedVotes);
-        }
-        if (storedTeachers.length > 0) {
-          setTeachers(storedTeachers);
-        }
-        setVotingOpen(storedVotingOpen);
+      if (!token || !userRaw) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const user = JSON.parse(userRaw) as AuthUser;
+        setAuthToken(token);
+        setAuthUser(user);
+        setIsLoggedIn(true);
+        setIsAdmin(user.role === "admin");
+        setIsITAdmin(user.role === "it_admin");
+        setTeacherName(user.name);
+        setCurrentEmail(user.email);
+        await hydrateFromBackend(token, user);
       } catch (error) {
-        console.error("Error loading data from IndexedDB:", error);
+        console.error("Failed to restore session:", error);
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(AUTH_USER_KEY);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadData();
-  }, []);
+    bootstrap();
+  }, [hydrateFromBackend]);
 
-  // Save candidates to IndexedDB whenever they change
-  useEffect(() => {
-    if (!isLoading && candidateList.length >= 0) {
-      saveCandidates(candidateList).catch(console.error);
-    }
-  }, [candidateList, isLoading]);
+  const hasVoted = authUser?.has_voted || false;
 
-  // Save votes to IndexedDB whenever they change
-  useEffect(() => {
-    if (!isLoading) {
-      saveVotes(allVotes).catch(console.error);
-    }
-  }, [allVotes, isLoading]);
-
-  // Save teachers to IndexedDB whenever they change
-  useEffect(() => {
-    if (!isLoading) {
-      saveTeachers(teachers).catch(console.error);
-    }
-  }, [teachers, isLoading]);
-
-  // Save votingOpen status to IndexedDB
-  useEffect(() => {
-    if (!isLoading) {
-      saveSetting("votingOpen", votingOpen).catch(console.error);
-    }
-  }, [votingOpen, isLoading]);
-
-  const hasVoted = allVotes.some((v) => v.teacherEmail === currentEmail);
+  const refreshData = useCallback(async () => {
+    if (!authToken || !authUser) return;
+    await hydrateFromBackend(authToken, authUser);
+  }, [authToken, authUser, hydrateFromBackend]);
 
   const results = useMemo(() => {
     const prCount: Record<string, number> = {};
@@ -153,132 +185,189 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
         }))
         .sort((a, b) => b.votes - a.votes);
 
+    if (isAdmin && serverPrefectResults.length > 0) {
+      return { prefects: serverPrefectResults };
+    }
     return {
       prefects: toSorted(prCount),
     };
-  }, [allVotes, candidateList]);
+  }, [allVotes, candidateList, isAdmin, serverPrefectResults]);
 
-  const login = (email: string, password: string) => {
-    if (email === "admin@school.com" && password === "admin123") {
-      setIsLoggedIn(true); setIsAdmin(true); setIsITAdmin(false);
-      setTeacherName("Admin"); setCurrentEmail(email);
+  const login = async (email: string, password: string) => {
+    try {
+      const data = await request<{ token: string; user: AuthUser }>("/api/login", {
+        method: "POST",
+        body: { email, password },
+      });
+
+      setAuthToken(data.token);
+      setAuthUser(data.user);
+      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
+
+      setIsLoggedIn(true);
+      setIsAdmin(data.user.role === "admin");
+      setIsITAdmin(data.user.role === "it_admin");
+      setTeacherName(data.user.name);
+      setCurrentEmail(data.user.email);
+      await hydrateFromBackend(data.token, data.user);
       return true;
+    } catch (error) {
+      console.error("Login failed:", error);
+      return false;
     }
-    if (email === "it@school.com" && password === "it123") {
-      setIsLoggedIn(true); setIsAdmin(false); setIsITAdmin(true);
-      setTeacherName("IT Administrator"); setCurrentEmail(email);
-      return true;
-    }
-    // Check if teacher exists
-    const teacher = teachers.find((t) => t.email === email);
-    if (teacher) {
-      // Check password - use custom password if set, otherwise default "teacher123"
-      const correctPassword = teacher.password || "teacher123";
-      if (password === correctPassword) {
-        setIsLoggedIn(true); setIsAdmin(false); setIsITAdmin(false);
-        setTeacherName(teacher.name); setCurrentEmail(email);
-        return true;
-      }
-    }
-    return false;
   };
 
   const logout = () => {
     setIsLoggedIn(false); setIsAdmin(false); setIsITAdmin(false);
     setTeacherName(""); setCurrentEmail("");
+    setAuthToken(null);
+    setAuthUser(null);
     setVotes({ prefects: [] });
-  };
-
-  const changePassword = (oldPassword: string, newPassword: string): boolean => {
-    const teacher = teachers.find((t) => t.email === currentEmail);
-    if (!teacher) return false;
-    
-    // Verify old password
-    const currentPassword = teacher.password || "teacher123";
-    if (oldPassword !== currentPassword) return false;
-    
-    // Update password
-    setTeachers((prev) => prev.map((t) => 
-      t.email === currentEmail ? { ...t, password: newPassword } : t
-    ));
-    return true;
-  };
-
-  const submitVote = () => {
-    const newVotes = [...allVotes, { teacherEmail: currentEmail, selections: { ...votes } }];
-    setAllVotes(newVotes);
-    // Mark teacher as voted
-    setTeachers((prev) => prev.map((t) => t.email === currentEmail ? { ...t, hasVoted: true } : t));
-  };
-
-  const toggleVoting = () => setVotingOpen((prev) => !prev);
-
-  const addCandidate = (candidate: Candidate) => {
-    setCandidateList((prev) => {
-      // Prevent duplicates
-      if (prev.some(c => c.id === candidate.id)) {
-        return prev;
-      }
-      return [...prev, candidate];
-    });
-  };
-
-  const removeCandidate = (id: string) => {
-    setCandidateList((prev) => prev.filter((c) => c.id !== id));
-    // Also remove votes for this candidate
-    setAllVotes((prev) => prev.map((vote) => ({
-      ...vote,
-      selections: {
-        ...vote.selections,
-        prefects: vote.selections.prefects.filter((p) => p !== id),
-      },
-    })));
-  };
-
-  const removeAllCandidates = () => {
     setCandidateList([]);
-    // Clear all votes since there are no candidates
+    setTeachers([]);
     setAllVotes([]);
-    // Reset teacher voting status
-    setTeachers((prev) => prev.map((t) => ({ ...t, hasVoted: false })));
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
   };
 
-  const updateCandidate = (id: string, updates: Partial<Candidate>) => {
-    setCandidateList((prev) => prev.map((c) => {
-      if (c.id === id) {
-        // If ID is being changed, update votes too
-        if (updates.id && updates.id !== id) {
-          setAllVotes((prevVotes) => prevVotes.map((vote) => ({
-            ...vote,
-            selections: {
-              ...vote.selections,
-              prefects: vote.selections.prefects.map((p) => p === id ? updates.id! : p),
-            },
-          })));
-        }
-        return { ...c, ...updates };
+  const changePassword = async (_oldPassword: string, _newPassword: string): Promise<boolean> => {
+    // Backend currently has no password-change endpoint.
+    return false;
+  };
+
+  const submitVote = async () => {
+    if (!authToken || !authUser) return false;
+    try {
+      await request("/api/vote", {
+        method: "POST",
+        token: authToken,
+        body: { prefects: votes.prefects },
+      });
+
+      const nextUser = { ...authUser, has_voted: true };
+      setAuthUser(nextUser);
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(nextUser));
+      setAllVotes((prev) => [...prev, { teacherEmail: currentEmail, selections: { ...votes } }]);
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.message.toLowerCase().includes("closed")) {
+        setVotingOpen(false);
       }
-      return c;
-    }));
+      return false;
+    }
   };
 
-  const updateCandidatePhoto = (id: string, photo: string) => {
-    setCandidateList((prev) => prev.map((c) => c.id === id ? { ...c, photo } : c));
+  const toggleVoting = async () => {
+    if (!authToken) return false;
+    try {
+      const data = await request<{ status: "open" | "closed" }>("/api/election/toggle", {
+        method: "POST",
+        token: authToken,
+      });
+      setVotingOpen(data.status === "open");
+      return true;
+    } catch {
+      return false;
+    }
   };
 
-  const addTeacher = (email: string) => {
-    const name = email.split("@")[0].replace(/\./g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-    setTeachers((prev) => {
-      // Prevent duplicates
-      if (prev.some(t => t.email === email)) {
-        return prev;
+  const addCandidate = async (candidate: Candidate) => {
+    if (!authToken) return false;
+    try {
+      await request("/api/candidates", {
+        method: "POST",
+        token: authToken,
+        body: {
+          name: candidate.name,
+          photo: candidate.photo || "",
+          year: candidate.year || "",
+        },
+      });
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
       }
-      return [...prev, { id: `t${Date.now()}`, name, email, hasVoted: false }];
-    });
+      return true;
+    } catch {
+      return false;
+    }
   };
 
-  const removeTeacher = (id: string) => {
-    setTeachers((prev) => prev.filter((t) => t.id !== id));
+  const removeCandidate = async (id: string) => {
+    if (!authToken) return false;
+    try {
+      await request(`/api/candidates/${id}`, {
+        method: "DELETE",
+        token: authToken,
+      });
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const removeAllCandidates = async () => {
+    if (!authToken) return false;
+    try {
+      for (const candidate of candidateList) {
+        await request(`/api/candidates/${candidate.id}`, {
+          method: "DELETE",
+          token: authToken,
+        });
+      }
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const updateCandidate = async (_id: string, _updates: Partial<Candidate>) => {
+    // Backend currently has no candidate update endpoint.
+    return false;
+  };
+
+  const updateCandidatePhoto = async (_id: string, _photo: string) => {
+    // Backend currently has no candidate photo update endpoint.
+    return false;
+  };
+
+  const addTeacher = async (email: string) => {
+    if (!authToken) return false;
+    try {
+      await request("/api/teachers", {
+        method: "POST",
+        token: authToken,
+        body: { email },
+      });
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const removeTeacher = async (id: string) => {
+    if (!authToken) return false;
+    try {
+      await request(`/api/teachers/${id}`, {
+        method: "DELETE",
+        token: authToken,
+      });
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   return (
@@ -287,6 +376,7 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
       votes, allVotes, candidates: candidateList, teachers, results, isLoading,
       login, logout, setVotes, submitVote, toggleVoting,
       addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, addTeacher, removeTeacher, changePassword,
+      refreshData,
     }}>
       {children}
     </ElectionContext.Provider>

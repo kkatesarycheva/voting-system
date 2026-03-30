@@ -22,7 +22,7 @@ const Header = () => {
     navigate("/");
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all fields");
       return;
@@ -36,7 +36,7 @@ const Header = () => {
       return;
     }
     
-    const success = changePassword(oldPassword, newPassword);
+    const success = await changePassword(oldPassword, newPassword);
     if (success) {
       toast.success("Password changed successfully");
       setShowPasswordDialog(false);
@@ -44,7 +44,7 @@ const Header = () => {
       setNewPassword("");
       setConfirmPassword("");
     } else {
-      toast.error("Incorrect current password");
+      toast.error("Password change is not available from remote backend yet");
     }
   };
 

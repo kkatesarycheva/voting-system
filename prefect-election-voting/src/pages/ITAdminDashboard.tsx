@@ -14,6 +14,7 @@ import {
   Upload, FileSpreadsheet, Image, Users, PlusCircle, Trash2, Search,
   FolderUp, CheckCircle, AlertCircle, X, Eye, Loader2, Pencil,
 } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 interface ParsedCandidate {
   id: string;
@@ -21,10 +22,8 @@ interface ParsedCandidate {
   year: string;
 }
 
-const API_BASE = "";
-
 const ITAdminDashboard = () => {
-  const { isLoggedIn, isITAdmin, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto } = useElection();
+  const { isLoggedIn, isITAdmin, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
   const navigate = useNavigate();
 
   const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
@@ -65,7 +64,7 @@ const ITAdminDashboard = () => {
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.id.includes(searchQuery)
   );
 
-  const handleAddCandidate = () => {
+  const handleAddCandidate = async () => {
     if (!newCandidate.name.trim() || !newCandidate.id.trim()) {
       toast.error("Please enter a name and Student ID.");
       return;
@@ -74,13 +73,21 @@ const ITAdminDashboard = () => {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: newCandidate.year });
+    const success = await addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: newCandidate.year });
+    if (!success) {
+      toast.error("Failed to add candidate.");
+      return;
+    }
     setNewCandidate({ name: "", id: "", year: "" });
     toast.success("Candidate added successfully.");
   };
 
-  const handleRemoveCandidate = (id: string) => {
-    removeCandidate(id);
+  const handleRemoveCandidate = async (id: string) => {
+    const success = await removeCandidate(id);
+    if (!success) {
+      toast.error("Failed to remove candidate.");
+      return;
+    }
     toast.success("Candidate removed.");
   };
 
@@ -89,7 +96,7 @@ const ITAdminDashboard = () => {
     setEditForm({ id: candidate.id, name: candidate.name, year: candidate.year || "" });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingCandidate) return;
     if (!editForm.name.trim() || !editForm.id.trim()) {
       toast.error("Name and ID are required.");
@@ -99,7 +106,11 @@ const ITAdminDashboard = () => {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
+    const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
+    if (!success) {
+      toast.error("Candidate editing is not supported by backend API yet.");
+      return;
+    }
     setEditingCandidate(null);
     toast.success("Candidate updated successfully.");
   };
@@ -109,15 +120,24 @@ const ITAdminDashboard = () => {
     const file = e.target.files[0];
     const reader = new FileReader();
     reader.onload = () => {
-      updateCandidate(editingCandidate.id, { photo: reader.result as string });
-      setEditingCandidate({ ...editingCandidate, photo: reader.result as string });
-      toast.success("Photo updated.");
+      updateCandidate(editingCandidate.id, { photo: reader.result as string }).then((success) => {
+        if (!success) {
+          toast.error("Photo updates are not supported by backend API yet.");
+          return;
+        }
+        setEditingCandidate({ ...editingCandidate, photo: reader.result as string });
+        toast.success("Photo updated.");
+      });
     };
     reader.readAsDataURL(file);
   };
 
-  const handleDeleteAll = () => {
-    removeAllCandidates();
+  const handleDeleteAll = async () => {
+    const success = await removeAllCandidates();
+    if (!success) {
+      toast.error("Failed to delete all candidates.");
+      return;
+    }
     setShowDeleteAllDialog(false);
     toast.success("All candidates deleted.");
   };
@@ -144,7 +164,7 @@ const ITAdminDashboard = () => {
       const formData = new FormData();
       formData.append("file", xlsxFile);
 
-      const res = await fetch(`${API_BASE}/api/candidates/parse-xlsx`, {
+      const res = await fetch(`${API_BASE_URL}/api/candidates/parse-xlsx`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -201,7 +221,7 @@ const ITAdminDashboard = () => {
 
     try {
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`${API_BASE}/api/candidates/import`, {
+      const res = await fetch(`${API_BASE_URL}/api/candidates/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -217,26 +237,14 @@ const ITAdminDashboard = () => {
 
       const data = await res.json();
       // Also add to local context
-      data.imported.forEach((c: any) => {
-        addCandidate({ id: String(c.id), name: c.name, photo: "", year: c.year });
-      });
-
       toast.success(`Successfully imported ${data.count} candidates!`);
       setUploadStatus("success");
       setParsedCandidates([]);
       setShowPreview(false);
       setXlsxFile(null);
+      await refreshData();
     } catch (err: any) {
-      // Fallback: add locally
-      parsedCandidates.forEach((c, i) => {
-        const candidateId = c.id || `xlsx-${Date.now()}-${i}`;
-        addCandidate({ id: candidateId, name: c.name, photo: "", year: importYear });
-      });
-      toast.success(`Imported ${parsedCandidates.length} candidates locally`);
-      setUploadStatus("success");
-      setParsedCandidates([]);
-      setShowPreview(false);
-      setXlsxFile(null);
+      toast.error(err.message || "Import failed");
     } finally {
       setIsImporting(false);
     }
@@ -278,8 +286,10 @@ const ITAdminDashboard = () => {
         if (candidate) {
           // Convert to base64 for persistent storage
           const photoUrl = await fileToBase64(file);
-          updateCandidatePhoto(studentId, photoUrl);
-          matchedCount++;
+          const success = await updateCandidatePhoto(studentId, photoUrl);
+          if (success) {
+            matchedCount++;
+          }
         }
       }
 

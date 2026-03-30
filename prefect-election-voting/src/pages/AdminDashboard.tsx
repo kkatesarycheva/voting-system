@@ -38,7 +38,7 @@ const AdminDashboard = () => {
   const totalVoters = teachers.filter((t) => t.email !== "admin@school.com" && t.email !== "it@school.com").length;
   const votedCount = allVotes.length;
 
-  const handleAddCandidate = () => {
+  const handleAddCandidate = async () => {
     if (!newCandidate.name.trim() || !newCandidate.id.trim()) {
       toast.error("Please enter a name and ID.");
       return;
@@ -47,12 +47,16 @@ const AdminDashboard = () => {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: newCandidate.year });
+    const success = await addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: newCandidate.year });
+    if (!success) {
+      toast.error("Failed to add candidate.");
+      return;
+    }
     setNewCandidate({ name: "", id: "", year: "" });
     toast.success("Candidate added successfully.");
   };
 
-  const handleAddTeacher = () => {
+  const handleAddTeacher = async () => {
     if (!newTeacherEmail.trim() || !newTeacherEmail.includes("@")) {
       toast.error("Please enter a valid email.");
       return;
@@ -61,7 +65,11 @@ const AdminDashboard = () => {
       toast.error("This teacher already exists.");
       return;
     }
-    addTeacher(newTeacherEmail);
+    const success = await addTeacher(newTeacherEmail);
+    if (!success) {
+      toast.error("Failed to add teacher.");
+      return;
+    }
     setNewTeacherEmail("");
     toast.success("Teacher added successfully.");
   };
@@ -71,7 +79,7 @@ const AdminDashboard = () => {
     setEditForm({ id: candidate.id, name: candidate.name, year: candidate.year || "" });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingCandidate) return;
     if (!editForm.name.trim() || !editForm.id.trim()) {
       toast.error("Name and ID are required.");
@@ -82,7 +90,11 @@ const AdminDashboard = () => {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
+    const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
+    if (!success) {
+      toast.error("Candidate editing is not supported by backend API yet.");
+      return;
+    }
     setEditingCandidate(null);
     toast.success("Candidate updated successfully.");
   };
@@ -94,15 +106,24 @@ const AdminDashboard = () => {
     // Convert to base64
     const reader = new FileReader();
     reader.onload = () => {
-      updateCandidate(editingCandidate.id, { photo: reader.result as string });
-      setEditingCandidate({ ...editingCandidate, photo: reader.result as string });
-      toast.success("Photo updated.");
+      updateCandidate(editingCandidate.id, { photo: reader.result as string }).then((success) => {
+        if (!success) {
+          toast.error("Photo updates are not supported by backend API yet.");
+          return;
+        }
+        setEditingCandidate({ ...editingCandidate, photo: reader.result as string });
+        toast.success("Photo updated.");
+      });
     };
     reader.readAsDataURL(file);
   };
 
-  const handleDeleteAll = () => {
-    removeAllCandidates();
+  const handleDeleteAll = async () => {
+    const success = await removeAllCandidates();
+    if (!success) {
+      toast.error("Failed to delete all candidates.");
+      return;
+    }
     setShowDeleteAllDialog(false);
     toast.success("All candidates deleted.");
   };
@@ -164,7 +185,10 @@ const AdminDashboard = () => {
             <Badge variant={votingOpen ? "default" : "secondary"} className={votingOpen ? "bg-success text-success-foreground" : ""}>
               {votingOpen ? "Voting Open" : "Voting Closed"}
             </Badge>
-            <Button variant="outline" onClick={toggleVoting} className="gap-2">
+            <Button variant="outline" onClick={async () => {
+              const success = await toggleVoting();
+              if (!success) toast.error("Failed to update voting status.");
+            }} className="gap-2">
               <Power className="w-4 h-4" />
               {votingOpen ? "Close Voting" : "Open Voting"}
             </Button>
@@ -264,7 +288,14 @@ const AdminDashboard = () => {
                       <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => handleEditCandidate(c)}>
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => removeCandidate(c.id)}>
+                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={async () => {
+                        const success = await removeCandidate(c.id);
+                        if (!success) {
+                          toast.error("Failed to remove candidate.");
+                          return;
+                        }
+                        toast.success("Candidate removed.");
+                      }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -282,7 +313,10 @@ const AdminDashboard = () => {
               <div>
                 <h3 className="font-display font-semibold text-foreground mb-2">Voting Controls</h3>
                 <p className="text-sm text-muted-foreground mb-3">Enable or disable voting for all teachers.</p>
-                <Button variant={votingOpen ? "destructive" : "default"} onClick={toggleVoting} className="gap-2">
+                <Button variant={votingOpen ? "destructive" : "default"} onClick={async () => {
+                  const success = await toggleVoting();
+                  if (!success) toast.error("Failed to update voting status.");
+                }} className="gap-2">
                   <Power className="w-4 h-4" />
                   {votingOpen ? "Close Voting" : "Open Voting"}
                 </Button>
@@ -308,7 +342,14 @@ const AdminDashboard = () => {
                         <Badge variant="outline" className={t.hasVoted ? "text-success border-success/30" : "text-muted-foreground"}>
                           {t.hasVoted ? "Voted" : "Not voted"}
                         </Badge>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => removeTeacher(t.id)}>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={async () => {
+                          const success = await removeTeacher(t.id);
+                          if (!success) {
+                            toast.error("Failed to remove teacher.");
+                            return;
+                          }
+                          toast.success("Teacher removed.");
+                        }}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>

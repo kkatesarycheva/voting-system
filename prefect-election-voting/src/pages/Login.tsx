@@ -15,14 +15,14 @@ const Login = () => {
   const { login } = useElection();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!email || !password) {
       setError("Please fill in all fields.");
       return;
     }
-    const success = login(email, password);
+    const success = await login(email, password);
     if (success) {
       if (email === "admin@school.com") navigate("/admin");
       else if (email === "it@school.com") navigate("/it-admin");
