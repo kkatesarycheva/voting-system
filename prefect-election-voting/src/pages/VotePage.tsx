@@ -6,21 +6,22 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Vote, AlertTriangle, CheckCircle, Search, Ban } from "lucide-react";
+import { Vote, AlertTriangle, CheckCircle, Search, Ban, Loader2 } from "lucide-react";
 
 const VotePage = () => {
-  const { isLoggedIn, hasVoted, votingOpen, votes, setVotes, submitVote, candidates } = useElection();
+  const { isLoggedIn, hasVoted, isLoading, votingOpen, votes, setVotes, submitVote, candidates } = useElection();
   const [showConfirm, setShowConfirm] = useState(false);
   const [searchPrefect, setSearchPrefect] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn) {
       navigate("/login");
     } else if (hasVoted) {
       navigate("/confirmation");
     }
-  }, [isLoggedIn, hasVoted, navigate]);
+  }, [isLoading, isLoggedIn, hasVoted, navigate]);
 
   const filterCandidates = (search: string) =>
     candidates.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
@@ -45,6 +46,14 @@ const VotePage = () => {
       navigate("/confirmation");
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || hasVoted) {
     return null;

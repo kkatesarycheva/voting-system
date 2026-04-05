@@ -14,7 +14,7 @@ import {
   Upload, FileSpreadsheet, Image, Users, PlusCircle, Trash2, Search,
   FolderUp, CheckCircle, AlertCircle, X, Eye, Loader2, Pencil,
 } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
+import { getApiBaseUrl } from "@/lib/api";
 
 interface ParsedCandidate {
   id: string;
@@ -23,7 +23,7 @@ interface ParsedCandidate {
 }
 
 const ITAdminDashboard = () => {
-  const { isLoggedIn, isITAdmin, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
+  const { isLoggedIn, isITAdmin, isLoading, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
   const navigate = useNavigate();
 
   const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
@@ -51,10 +51,19 @@ const ITAdminDashboard = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn || !isITAdmin) {
       navigate("/login");
     }
-  }, [isLoggedIn, isITAdmin, navigate]);
+  }, [isLoading, isLoggedIn, isITAdmin, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || !isITAdmin) {
     return null;
@@ -108,7 +117,7 @@ const ITAdminDashboard = () => {
     }
     const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
     if (!success) {
-      toast.error("Candidate editing is not supported by backend API yet.");
+      toast.error("Could not update candidate.");
       return;
     }
     setEditingCandidate(null);
@@ -164,7 +173,7 @@ const ITAdminDashboard = () => {
       const formData = new FormData();
       formData.append("file", xlsxFile);
 
-      const res = await fetch(`${API_BASE_URL}/api/candidates/parse-xlsx`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/candidates/parse-xlsx`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -221,7 +230,7 @@ const ITAdminDashboard = () => {
 
     try {
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`${API_BASE_URL}/api/candidates/import`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/candidates/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
