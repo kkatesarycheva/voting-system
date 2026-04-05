@@ -280,6 +280,7 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
         method: "POST",
         token: authToken,
         body: {
+          id: candidate.id?.trim() || undefined,
           name: candidate.name,
           photo: candidate.photo || "",
           year: candidate.year || "",
@@ -330,7 +331,8 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
 
   const updateCandidate = async (id: string, updates: Partial<Candidate>) => {
     if (!authToken) return false;
-    const body: { name?: string; year?: string; photo?: string } = {};
+    const body: { id?: string; name?: string; year?: string; photo?: string } = {};
+    if (updates.id !== undefined) body.id = updates.id.trim();
     if (updates.name !== undefined) body.name = updates.name;
     if (updates.year !== undefined) body.year = updates.year;
     if (updates.photo !== undefined) body.photo = updates.photo;

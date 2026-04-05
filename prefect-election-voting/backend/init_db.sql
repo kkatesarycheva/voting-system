@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   name TEXT NOT NULL,
   photo TEXT DEFAULT '',
   year TEXT DEFAULT '',
+  custom_id TEXT,
   election_id INTEGER,
   FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
 );
@@ -45,6 +46,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_vote_position
 CREATE INDEX IF NOT EXISTS idx_votes_candidate ON votes(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_votes_teacher ON votes(teacher_id);
 CREATE INDEX IF NOT EXISTS idx_candidates_election ON candidates(election_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_election_custom_id ON candidates(election_id, custom_id) WHERE custom_id IS NOT NULL AND custom_id != '';
 
 -- Seed default admin users (passwords: admin123, it123, teacher123 - bcrypt hashed)
 -- NOTE: Generate real hashes with bcrypt before production use.

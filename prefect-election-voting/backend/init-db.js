@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   name TEXT NOT NULL,
   photo TEXT DEFAULT '',
   year TEXT DEFAULT '',
+  custom_id TEXT,
   election_id INTEGER NOT NULL,
   FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -49,6 +50,9 @@ CREATE TABLE IF NOT EXISTS votes (
 `;
 
 db.exec(schema);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_election_custom_id ON candidates(election_id, custom_id) WHERE custom_id IS NOT NULL AND custom_id != ''"
+);
 
 // Seed users with hashed passwords
 const users = [

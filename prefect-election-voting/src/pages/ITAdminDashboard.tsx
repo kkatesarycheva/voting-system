@@ -117,7 +117,7 @@ const ITAdminDashboard = () => {
     }
     const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
     if (!success) {
-      toast.error("Candidate editing is not supported by backend API yet.");
+      toast.error("Could not update candidate.");
       return;
     }
     setEditingCandidate(null);
