@@ -57,7 +57,7 @@ interface ElectionContextType {
   addTeacher: (email: string) => Promise<boolean>;
   removeTeacher: (id: string) => Promise<boolean>;
   setTeacherPassword: (id: string, newPassword: string) => Promise<boolean>;
-  changePassword: (oldPassword: string, newPassword: string) => Promise<boolean>;
+  changePassword: (oldPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   refreshData: () => Promise<void>;
 }
 
@@ -232,9 +232,22 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem(AUTH_USER_KEY);
   };
 
-  const changePassword = async (_oldPassword: string, _newPassword: string): Promise<boolean> => {
-    // Backend currently has no password-change endpoint.
-    return false;
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (!authToken) return { success: false, error: "Not signed in" };
+    try {
+      await request("/api/me/password", {
+        method: "PATCH",
+        token: authToken,
+        body: { oldPassword, newPassword },
+      });
+      return { success: true };
+    } catch (e) {
+      console.error("Password change failed:", e);
+      if (e instanceof ApiError) {
+        return { success: false, error: e.message };
+      }
+      return { success: false, error: "Could not change password" };
+    }
   };
 
   const submitVote = async () => {

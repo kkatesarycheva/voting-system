@@ -31,20 +31,20 @@ const Header = () => {
       toast.error("New passwords do not match");
       return;
     }
-    if (newPassword.length < 4) {
-      toast.error("Password must be at least 4 characters");
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
       return;
     }
-    
-    const success = await changePassword(oldPassword, newPassword);
-    if (success) {
+
+    const result = await changePassword(oldPassword, newPassword);
+    if (result.success) {
       toast.success("Password changed successfully");
       setShowPasswordDialog(false);
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } else {
-      toast.error("Password change is not available from remote backend yet");
+      toast.error(result.error || "Could not change password");
     }
   };
 
@@ -98,11 +98,9 @@ const Header = () => {
           {isLoggedIn ? (
             <div className="flex items-center gap-2 ml-2 pl-2 border-l border-primary-foreground/20">
               <span className="text-primary-foreground/70 text-sm hidden sm:inline">{teacherName}</span>
-              {!isAdmin && !isITAdmin && (
-                <Button variant="ghost" size="sm" onClick={() => setShowPasswordDialog(true)} className="text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10" title="Change Password">
-                  <Key className="w-4 h-4" />
-                </Button>
-              )}
+              <Button variant="ghost" size="sm" onClick={() => setShowPasswordDialog(true)} className="text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10" title="Change Password">
+                <Key className="w-4 h-4" />
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleLogout} className="text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10">
                 <LogOut className="w-4 h-4" />
               </Button>

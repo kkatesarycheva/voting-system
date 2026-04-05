@@ -126,6 +126,28 @@ app.post("/api/login", (req, res) => {
   });
 });
 
+// ─── PATCH /api/me/password ─────────────────────────────────────
+app.patch("/api/me/password", authenticate, (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (oldPassword == null || newPassword == null || typeof oldPassword !== "string" || typeof newPassword !== "string") {
+    return res.status(400).json({ error: "Current and new password required" });
+  }
+  if (!String(newPassword).trim()) {
+    return res.status(400).json({ error: "New password cannot be empty" });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters" });
+  }
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!bcrypt.compareSync(oldPassword, user.password_hash)) {
+    return res.status(401).json({ error: "Invalid current password" });
+  }
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, req.user.id);
+  res.json({ ok: true });
+});
+
 // ─── GET /api/candidates ─────────────────────────────────────────
 app.get("/api/candidates", authenticate, (req, res) => {
   const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
