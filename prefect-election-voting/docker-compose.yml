@@ -1,6 +1,7 @@
 services:
   voting-app:
     build: .
+    image: voting-app
     container_name: voting-app
     networks:
       - katuriy_network

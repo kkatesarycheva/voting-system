@@ -18,10 +18,6 @@ docker compose down
 docker compose build \
   ${APP_UID:+--build-arg APP_UID=$APP_UID} \
   ${APP_GID:+--build-arg APP_GID=$APP_GID}
-docker compose up -d
-
-echo "==> Waiting for container to start..."
-sleep 5
 
 NEED_INIT=0
 if [ ! -f "$SCRIPT_DIR/data/voting.db" ]; then
@@ -35,8 +31,13 @@ fi
 
 if [ "$NEED_INIT" = "1" ]; then
   echo "==> Database missing or 'users' table not found — initialising..."
-  docker compose exec voting-app node /app/backend/init-db.js
+  docker compose run --rm voting-app node /app/backend/init-db.js
   echo "==> Database initialised."
 fi
+
+docker compose up -d
+
+echo "==> Waiting for container to start..."
+sleep 3
 
 echo "==> Deployment complete. App running at http://localhost:49981"
