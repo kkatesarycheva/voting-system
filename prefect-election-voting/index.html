@@ -17,6 +17,11 @@
 
   <body>
     <div id="root"></div>
+    <!-- Runs before the app bundle; deployments can inject or replace this script (e.g. envsubst, sed). -->
+    <script>
+      // window.__API_BASE_URL__ = ""; // same-origin (e.g. app and API on one host)
+      // window.__API_BASE_URL__ = "http://localhost:3001"; // local backend
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

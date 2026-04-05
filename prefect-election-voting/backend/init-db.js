@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS candidates (
   name TEXT NOT NULL,
   photo TEXT DEFAULT '',
   year TEXT DEFAULT '',
-  election_id INTEGER,
-  FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
+  election_id INTEGER NOT NULL,
+  FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS votes (
@@ -43,8 +43,8 @@ CREATE TABLE IF NOT EXISTS votes (
   candidate_id INTEGER NOT NULL,
   position TEXT NOT NULL CHECK(position IN ('headgirl', 'headboy', 'prefect')),
   timestamp TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (teacher_id) REFERENCES users(id),
-  FOREIGN KEY (candidate_id) REFERENCES candidates(id)
+  FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 `;
 

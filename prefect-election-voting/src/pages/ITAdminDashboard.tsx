@@ -14,7 +14,7 @@ import {
   Upload, FileSpreadsheet, Image, Users, PlusCircle, Trash2, Search,
   FolderUp, CheckCircle, AlertCircle, X, Eye, Loader2, Pencil,
 } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
+import { getApiBaseUrl } from "@/lib/api";
 
 interface ParsedCandidate {
   id: string;
@@ -164,7 +164,7 @@ const ITAdminDashboard = () => {
       const formData = new FormData();
       formData.append("file", xlsxFile);
 
-      const res = await fetch(`${API_BASE_URL}/api/candidates/parse-xlsx`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/candidates/parse-xlsx`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -221,7 +221,7 @@ const ITAdminDashboard = () => {
 
     try {
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`${API_BASE_URL}/api/candidates/import`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/candidates/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
