@@ -10,11 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BarChart, Users, Vote, Settings, Download, Power, PlusCircle, Trophy, Star, Trash2, Pencil, Image, AlertTriangle, KeyRound } from "lucide-react";
+import { BarChart, Users, Vote, Settings, Download, Power, PlusCircle, Trophy, Star, Trash2, Pencil, Image, AlertTriangle, KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { isLoggedIn, isAdmin, votingOpen, toggleVoting, candidates, results, allVotes, teachers, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, addTeacher, removeTeacher, setTeacherPassword } = useElection();
+  const { isLoggedIn, isAdmin, isLoading, votingOpen, toggleVoting, candidates, results, allVotes, teachers, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, addTeacher, removeTeacher, setTeacherPassword } = useElection();
   const navigate = useNavigate();
   const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
   const [newTeacherEmail, setNewTeacherEmail] = useState("");
@@ -28,10 +28,19 @@ const AdminDashboard = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn || !isAdmin) {
       navigate("/login");
     }
-  }, [isLoggedIn, isAdmin, navigate]);
+  }, [isLoading, isLoggedIn, isAdmin, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || !isAdmin) {
     return null;

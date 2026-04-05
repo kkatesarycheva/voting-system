@@ -23,7 +23,7 @@ interface ParsedCandidate {
 }
 
 const ITAdminDashboard = () => {
-  const { isLoggedIn, isITAdmin, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
+  const { isLoggedIn, isITAdmin, isLoading, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
   const navigate = useNavigate();
 
   const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
@@ -51,10 +51,19 @@ const ITAdminDashboard = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn || !isITAdmin) {
       navigate("/login");
     }
-  }, [isLoggedIn, isITAdmin, navigate]);
+  }, [isLoading, isLoggedIn, isITAdmin, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || !isITAdmin) {
     return null;

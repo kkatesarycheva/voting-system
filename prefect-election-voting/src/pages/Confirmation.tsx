@@ -3,22 +3,31 @@ import { useEffect } from "react";
 import { useElection } from "@/lib/electionContext";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Home } from "lucide-react";
+import { CheckCircle, Home, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const Confirmation = () => {
-  const { isLoggedIn, hasVoted, votes, candidates } = useElection();
+  const { isLoggedIn, hasVoted, isLoading, votes, candidates } = useElection();
   const navigate = useNavigate();
 
   const selectedPrefects = candidates.filter((c) => votes.prefects.includes(c.id));
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn) {
       navigate("/login");
     } else if (!hasVoted) {
       navigate("/vote");
     }
-  }, [isLoggedIn, hasVoted, navigate]);
+  }, [isLoading, isLoggedIn, hasVoted, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || !hasVoted) {
     return null;
