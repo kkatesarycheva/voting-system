@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useElection } from "@/lib/electionContext";
-import { Candidate } from "@/lib/mockData";
+import { Candidate, Teacher } from "@/lib/mockData";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,11 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BarChart, Users, Vote, Settings, Download, Power, PlusCircle, Trophy, Star, Trash2, Pencil, Image, AlertTriangle } from "lucide-react";
+import { BarChart, Users, Vote, Settings, Download, Power, PlusCircle, Trophy, Star, Trash2, Pencil, Image, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { isLoggedIn, isAdmin, votingOpen, toggleVoting, candidates, results, allVotes, teachers, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, addTeacher, removeTeacher } = useElection();
+  const { isLoggedIn, isAdmin, votingOpen, toggleVoting, candidates, results, allVotes, teachers, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, addTeacher, removeTeacher, setTeacherPassword } = useElection();
   const navigate = useNavigate();
   const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
   const [newTeacherEmail, setNewTeacherEmail] = useState("");
@@ -23,6 +23,8 @@ const AdminDashboard = () => {
   const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
   const [editForm, setEditForm] = useState({ id: "", name: "", year: "" });
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [teacherForPassword, setTeacherForPassword] = useState<Teacher | null>(null);
+  const [teacherPasswordForm, setTeacherPasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -342,6 +344,18 @@ const AdminDashboard = () => {
                         <Badge variant="outline" className={t.hasVoted ? "text-success border-success/30" : "text-muted-foreground"}>
                           {t.hasVoted ? "Voted" : "Not voted"}
                         </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-foreground"
+                          title="Set password"
+                          onClick={() => {
+                            setTeacherForPassword(t);
+                            setTeacherPasswordForm({ newPassword: "", confirmPassword: "" });
+                          }}
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </Button>
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={async () => {
                           const success = await removeTeacher(t.id);
                           if (!success) {
@@ -403,6 +417,84 @@ const AdminDashboard = () => {
             <Button variant="outline" onClick={() => setEditingCandidate(null)}>Cancel</Button>
             <Button onClick={handleSaveEdit} className="bg-gradient-navy text-primary-foreground font-semibold hover:opacity-90">
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set teacher password */}
+      <Dialog
+        open={!!teacherForPassword}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTeacherForPassword(null);
+            setTeacherPasswordForm({ newPassword: "", confirmPassword: "" });
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Set teacher password</DialogTitle>
+            <DialogDescription>
+              {teacherForPassword ? (
+                <>Set a new login password for {teacherForPassword.name} ({teacherForPassword.email}).</>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>New password</Label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="new-password"
+                value={teacherPasswordForm.newPassword}
+                onChange={(e) => setTeacherPasswordForm((f) => ({ ...f, newPassword: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Confirm password</Label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="new-password"
+                value={teacherPasswordForm.confirmPassword}
+                onChange={(e) => setTeacherPasswordForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setTeacherForPassword(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-gradient-navy text-primary-foreground font-semibold hover:opacity-90"
+              onClick={async () => {
+                if (!teacherForPassword) return;
+                const { newPassword, confirmPassword } = teacherPasswordForm;
+                if (!newPassword.trim()) {
+                  toast.error("Please enter a new password.");
+                  return;
+                }
+                if (newPassword.length < 6) {
+                  toast.error("Password must be at least 6 characters.");
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  toast.error("Passwords do not match.");
+                  return;
+                }
+                const success = await setTeacherPassword(teacherForPassword.id, newPassword);
+                if (!success) {
+                  toast.error("Failed to update password.");
+                  return;
+                }
+                toast.success("Password updated.");
+                setTeacherForPassword(null);
+                setTeacherPasswordForm({ newPassword: "", confirmPassword: "" });
+              }}
+            >
+              Save password
             </Button>
           </DialogFooter>
         </DialogContent>

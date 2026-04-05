@@ -37,7 +37,7 @@ db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 
 
 app.use("/uploads", express.static(uploadDir));
@@ -115,6 +115,36 @@ app.post("/api/candidates", authenticate, requireRole("admin", "it_admin"), (req
 app.delete("/api/candidates/:id", authenticate, requireRole("admin", "it_admin"), (req, res) => {
   db.prepare("DELETE FROM candidates WHERE id = ?").run(req.params.id);
   res.json({ success: true });
+});
+
+// ─── PATCH /api/candidates/:id ─────────────────────────────────
+app.patch("/api/candidates/:id", authenticate, requireRole("admin", "it_admin"), (req, res) => {
+  const { name, year, photo } = req.body;
+  if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+    return res.status(400).json({ error: "Name cannot be empty" });
+  }
+
+  const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+  if (!election) return res.status(400).json({ error: "No open election" });
+
+  const row = db.prepare("SELECT id, name, year, photo FROM candidates WHERE id = ? AND election_id = ?").get(
+    req.params.id,
+    election.id
+  );
+  if (!row) return res.status(404).json({ error: "Candidate not found" });
+
+  const nextName = name !== undefined ? name.trim() : row.name;
+  const nextYear = year !== undefined ? String(year) : row.year;
+  const nextPhoto = photo !== undefined ? String(photo) : row.photo;
+
+  db.prepare("UPDATE candidates SET name = ?, year = ?, photo = ? WHERE id = ?").run(
+    nextName,
+    nextYear,
+    nextPhoto,
+    req.params.id
+  );
+
+  res.json({ id: Number(req.params.id), name: nextName, year: nextYear, photo: nextPhoto });
 });
 
 // ─── POST /api/vote ──────────────────────────────────────────────
@@ -243,6 +273,27 @@ app.post("/api/teachers", authenticate, requireRole("admin", "it_admin"), (req, 
 // ─── DELETE /api/teachers/:id ────────────────────────────────────
 app.delete("/api/teachers/:id", authenticate, requireRole("admin", "it_admin"), (req, res) => {
   db.prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'").run(req.params.id);
+  res.json({ success: true });
+});
+
+// ─── PATCH /api/teachers/:id/password ────────────────────────────
+app.patch("/api/teachers/:id/password", authenticate, requireRole("admin"), (req, res) => {
+  const { password } = req.body;
+  if (!password || typeof password !== "string" || !password.trim()) {
+    return res.status(400).json({ error: "Password required" });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters" });
+  }
+  const user = db.prepare("SELECT id, role FROM users WHERE id = ?").get(req.params.id);
+  if (!user || user.role !== "teacher") {
+    return res.status(404).json({ error: "Teacher not found" });
+  }
+  const hash = bcrypt.hashSync(password, 10);
+  const result = db.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'teacher'").run(hash, req.params.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Teacher not found" });
+  }
   res.json({ success: true });
 });
 

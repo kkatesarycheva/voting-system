@@ -56,6 +56,7 @@ interface ElectionContextType {
   updateCandidatePhoto: (id: string, photo: string) => Promise<boolean>;
   addTeacher: (email: string) => Promise<boolean>;
   removeTeacher: (id: string) => Promise<boolean>;
+  setTeacherPassword: (id: string, newPassword: string) => Promise<boolean>;
   changePassword: (oldPassword: string, newPassword: string) => Promise<boolean>;
   refreshData: () => Promise<void>;
 }
@@ -327,14 +328,43 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const updateCandidate = async (_id: string, _updates: Partial<Candidate>) => {
-    // Backend currently has no candidate update endpoint.
-    return false;
+  const updateCandidate = async (id: string, updates: Partial<Candidate>) => {
+    if (!authToken) return false;
+    const body: { name?: string; year?: string; photo?: string } = {};
+    if (updates.name !== undefined) body.name = updates.name;
+    if (updates.year !== undefined) body.year = updates.year;
+    if (updates.photo !== undefined) body.photo = updates.photo;
+    if (Object.keys(body).length === 0) return true;
+    try {
+      await request(`/api/candidates/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token: authToken,
+        body,
+      });
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   };
 
-  const updateCandidatePhoto = async (_id: string, _photo: string) => {
-    // Backend currently has no candidate photo update endpoint.
-    return false;
+  const updateCandidatePhoto = async (id: string, photo: string) => {
+    if (!authToken) return false;
+    try {
+      await request(`/api/candidates/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token: authToken,
+        body: { photo },
+      });
+      if (authUser) {
+        await hydrateFromBackend(authToken, authUser);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const addTeacher = async (email: string) => {
@@ -370,12 +400,26 @@ export const ElectionProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const setTeacherPassword = async (id: string, newPassword: string) => {
+    if (!authToken) return false;
+    try {
+      await request(`/api/teachers/${id}/password`, {
+        method: "PATCH",
+        token: authToken,
+        body: { password: newPassword },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <ElectionContext.Provider value={{
       isLoggedIn, isAdmin, isITAdmin, teacherName, currentEmail, hasVoted, votingOpen,
       votes, allVotes, candidates: candidateList, teachers, results, isLoading,
       login, logout, setVotes, submitVote, toggleVoting,
-      addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, addTeacher, removeTeacher, changePassword,
+      addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, addTeacher, removeTeacher, setTeacherPassword, changePassword,
       refreshData,
     }}>
       {children}

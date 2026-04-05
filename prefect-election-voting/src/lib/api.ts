@@ -19,7 +19,7 @@ export function getApiBaseUrl(): string {
   return trimmed.replace(/\/$/, "");
 }
 
-type HttpMethod = "GET" | "POST" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 interface RequestOptions {
   method?: HttpMethod;
