@@ -36,8 +36,47 @@ const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
+(function migrateCandidatesCustomId() {
+  const cols = db.prepare("PRAGMA table_info(candidates)").all();
+  if (!cols.some((c) => c.name === "custom_id")) {
+    db.exec("ALTER TABLE candidates ADD COLUMN custom_id TEXT");
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_election_custom_id ON candidates(election_id, custom_id) WHERE custom_id IS NOT NULL AND custom_id != ''"
+    );
+  }
+})();
+
+/** @param {number} electionId @param {string} publicId */
+function findCandidateByPublicId(electionId, publicId) {
+  const decoded = decodeURIComponent(String(publicId));
+  let row = db
+    .prepare("SELECT * FROM candidates WHERE election_id = ? AND custom_id = ?")
+    .get(electionId, decoded);
+  if (row) return row;
+  return (
+    db
+      .prepare(
+        "SELECT * FROM candidates WHERE election_id = ? AND (custom_id IS NULL OR custom_id = '') AND CAST(id AS TEXT) = ?"
+      )
+      .get(electionId, decoded) || null
+  );
+}
+
+/** @param {number} electionId @param {string} publicId */
+function resolveInternalCandidateId(electionId, publicId) {
+  const row = findCandidateByPublicId(electionId, publicId);
+  return row ? row.id : null;
+}
+
+function candidatePublicId(row) {
+  if (row.custom_id != null && String(row.custom_id).trim() !== "") {
+    return String(row.custom_id).trim();
+  }
+  return String(row.id);
+}
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 
 
 app.use("/uploads", express.static(uploadDir));
@@ -87,34 +126,166 @@ app.post("/api/login", (req, res) => {
   });
 });
 
+// ─── PATCH /api/me/password ─────────────────────────────────────
+app.patch("/api/me/password", authenticate, (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (oldPassword == null || newPassword == null || typeof oldPassword !== "string" || typeof newPassword !== "string") {
+    return res.status(400).json({ error: "Current and new password required" });
+  }
+  if (!String(newPassword).trim()) {
+    return res.status(400).json({ error: "New password cannot be empty" });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters" });
+  }
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!bcrypt.compareSync(oldPassword, user.password_hash)) {
+    return res.status(401).json({ error: "Invalid current password" });
+  }
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, req.user.id);
+  res.json({ ok: true });
+});
+
 // ─── GET /api/candidates ─────────────────────────────────────────
 app.get("/api/candidates", authenticate, (req, res) => {
   const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
   if (!election) return res.json([]);
 
   const candidates = db.prepare("SELECT * FROM candidates WHERE election_id = ? ORDER BY name").all(election.id);
-  res.json(candidates);
+  res.json(
+    candidates.map((c) => ({
+      id: candidatePublicId(c),
+      name: c.name,
+      photo: c.photo || "",
+      year: c.year || "",
+    }))
+  );
 });
+
+// ─── Validation helpers ─────────────────────────────────────────
+function isValidName(name) {
+  return /^[a-zA-Z\s\-']+$/.test(name.trim());
+}
+
+function isValidStudentId(id) {
+  return /^\d{1,4}$/.test(String(id).trim());
+}
 
 // ─── POST /api/candidates ────────────────────────────────────────
 app.post("/api/candidates", authenticate, requireRole("admin", "it_admin"), (req, res) => {
-  const { name, photo, year } = req.body;
+  const { name, photo, year, id: customIdRaw } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
+
+  // Validate name
+  if (!isValidName(name)) {
+    return res.status(400).json({ error: "Name can only contain letters, spaces, hyphens, and apostrophes" });
+  }
 
   const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
   if (!election) return res.status(400).json({ error: "No open election" });
 
-  const result = db.prepare(
-    "INSERT INTO candidates (name, photo, year, election_id) VALUES (?, ?, ?, ?)"
-  ).run(name, photo || "", year || "", election.id);
+  const customId =
+    customIdRaw !== undefined && customIdRaw !== null ? String(customIdRaw).trim() : "";
+  
+  // Validate student ID if provided
+  if (customId && !isValidStudentId(customId)) {
+    return res.status(400).json({ error: "Student ID must be 1-4 digits only" });
+  }
 
-  res.status(201).json({ id: result.lastInsertRowid, name, photo: photo || "", year: year || "" });
+  if (customId) {
+    const clash = db
+      .prepare("SELECT id FROM candidates WHERE election_id = ? AND custom_id = ?")
+      .get(election.id, customId);
+    if (clash) return res.status(400).json({ error: "Candidate ID already exists" });
+  }
+
+  const result = db
+    .prepare(
+      "INSERT INTO candidates (name, photo, year, election_id, custom_id) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(name, photo || "", year || "", election.id, customId || null);
+
+  const row = db.prepare("SELECT * FROM candidates WHERE id = ?").get(result.lastInsertRowid);
+  res.status(201).json({
+    id: candidatePublicId(row),
+    name,
+    photo: photo || "",
+    year: year || "",
+  });
 });
 
 // ─── DELETE /api/candidates/:id ──────────────────────────────────
 app.delete("/api/candidates/:id", authenticate, requireRole("admin", "it_admin"), (req, res) => {
-  db.prepare("DELETE FROM candidates WHERE id = ?").run(req.params.id);
+  const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+  if (!election) return res.status(400).json({ error: "No open election" });
+
+  const row = findCandidateByPublicId(election.id, req.params.id);
+  if (!row) return res.status(404).json({ error: "Candidate not found" });
+
+  db.prepare("DELETE FROM candidates WHERE id = ?").run(row.id);
   res.json({ success: true });
+});
+
+// ─── PATCH /api/candidates/:id ─────────────────────────────────
+app.patch("/api/candidates/:id", authenticate, requireRole("admin", "it_admin"), (req, res) => {
+  const { name, year, photo, id: newPublicId } = req.body;
+  if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+    return res.status(400).json({ error: "Name cannot be empty" });
+  }
+
+  // Validate name if provided
+  if (name !== undefined && !isValidName(name)) {
+    return res.status(400).json({ error: "Name can only contain letters, spaces, hyphens, and apostrophes" });
+  }
+
+  const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+  if (!election) return res.status(400).json({ error: "No open election" });
+
+  const row = findCandidateByPublicId(election.id, req.params.id);
+  if (!row) return res.status(404).json({ error: "Candidate not found" });
+
+  const nextName = name !== undefined ? name.trim() : row.name;
+  const nextYear = year !== undefined ? String(year) : row.year;
+  const nextPhoto = photo !== undefined ? String(photo) : row.photo;
+
+  let nextCustomId = row.custom_id;
+  if (newPublicId !== undefined) {
+    const trimmed = String(newPublicId).trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: "Candidate ID cannot be empty" });
+    }
+    // Validate student ID
+    if (!isValidStudentId(trimmed)) {
+      return res.status(400).json({ error: "Student ID must be 1-4 digits only" });
+    }
+    if (trimmed !== candidatePublicId(row)) {
+      const clash = db
+        .prepare(
+          "SELECT id FROM candidates WHERE election_id = ? AND custom_id = ? AND id != ?"
+        )
+        .get(election.id, trimmed, row.id);
+      if (clash) return res.status(400).json({ error: "Candidate ID already exists" });
+    }
+    nextCustomId = trimmed;
+  }
+
+  db.prepare("UPDATE candidates SET name = ?, year = ?, photo = ?, custom_id = ? WHERE id = ?").run(
+    nextName,
+    nextYear,
+    nextPhoto,
+    nextCustomId != null && String(nextCustomId).trim() !== "" ? String(nextCustomId).trim() : null,
+    row.id
+  );
+
+  const updated = db.prepare("SELECT * FROM candidates WHERE id = ?").get(row.id);
+  res.json({
+    id: candidatePublicId(updated),
+    name: nextName,
+    year: nextYear,
+    photo: nextPhoto,
+  });
 });
 
 // ─── POST /api/vote ──────────────────────────────────────────────
@@ -135,11 +306,23 @@ app.post("/api/vote", authenticate, (req, res) => {
   );
 
   const submitAll = db.transaction(() => {
-    if (headgirl) insertVote.run(userId, headgirl, "headgirl");
-    if (headboy) insertVote.run(userId, headboy, "headboy");
+    if (headgirl) {
+      const hg = resolveInternalCandidateId(election.id, String(headgirl));
+      if (hg == null) throw new Error(`Unknown candidate: ${headgirl}`);
+      insertVote.run(userId, hg, "headgirl");
+    }
+    if (headboy) {
+      const hb = resolveInternalCandidateId(election.id, String(headboy));
+      if (hb == null) throw new Error(`Unknown candidate: ${headboy}`);
+      insertVote.run(userId, hb, "headboy");
+    }
     if (Array.isArray(prefects)) {
       for (const p of prefects) {
-        insertVote.run(userId, p, "prefect");
+        const internalId = resolveInternalCandidateId(election.id, String(p));
+        if (internalId == null) {
+          throw new Error(`Unknown candidate: ${p}`);
+        }
+        insertVote.run(userId, internalId, "prefect");
       }
     }
     db.prepare("UPDATE users SET has_voted = 1 WHERE id = ?").run(userId);
@@ -149,7 +332,11 @@ app.post("/api/vote", authenticate, (req, res) => {
     submitAll();
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const msg = String(err.message || err);
+    if (msg.startsWith("Unknown candidate:")) {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -246,6 +433,27 @@ app.delete("/api/teachers/:id", authenticate, requireRole("admin", "it_admin"), 
   res.json({ success: true });
 });
 
+// ─── PATCH /api/teachers/:id/password ────────────────────────────
+app.patch("/api/teachers/:id/password", authenticate, requireRole("admin"), (req, res) => {
+  const { password } = req.body;
+  if (!password || typeof password !== "string" || !password.trim()) {
+    return res.status(400).json({ error: "Password required" });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters" });
+  }
+  const user = db.prepare("SELECT id, role FROM users WHERE id = ?").get(req.params.id);
+  if (!user || user.role !== "teacher") {
+    return res.status(404).json({ error: "Teacher not found" });
+  }
+  const hash = bcrypt.hashSync(password, 10);
+  const result = db.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'teacher'").run(hash, req.params.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Teacher not found" });
+  }
+  res.json({ success: true });
+});
+
 // ─── POST /api/candidates/parse-xlsx ─────────────────────────────
 app.post("/api/candidates/parse-xlsx", authenticate, requireRole("admin", "it_admin"), upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -278,15 +486,48 @@ app.post("/api/candidates/import", authenticate, requireRole("admin", "it_admin"
     return res.status(400).json({ error: "No candidates provided" });
   }
 
+  // Validate all candidates before importing
+  for (const c of candidates) {
+    if (c.name && !isValidName(c.name)) {
+      return res.status(400).json({ error: `Invalid name format: ${c.name}. Names can only contain letters, spaces, hyphens, and apostrophes.` });
+    }
+    const customId = c.id !== undefined && c.id !== null ? String(c.id).trim() : "";
+    if (customId && !isValidStudentId(customId)) {
+      return res.status(400).json({ error: `Invalid student ID: ${customId}. Student ID must be 1-4 digits only.` });
+    }
+  }
+
   const election = db.prepare("SELECT id FROM elections WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
   if (!election) return res.status(400).json({ error: "No open election" });
 
-  const insert = db.prepare("INSERT INTO candidates (name, photo, year, election_id) VALUES (?, '', ?, ?)");
+  const insert = db.prepare(
+    "INSERT INTO candidates (name, photo, year, election_id, custom_id) VALUES (?, '', ?, ?, ?)"
+  );
   const importAll = db.transaction(() => {
     const imported = [];
     for (const c of candidates) {
-      const result = insert.run(c.name, year || c.year || "", election.id);
-      imported.push({ id: result.lastInsertRowid, name: c.name, year: year || c.year || "" });
+      const customId =
+        c.id !== undefined && c.id !== null ? String(c.id).trim() : "";
+      if (customId) {
+        const clash = db
+          .prepare("SELECT id FROM candidates WHERE election_id = ? AND custom_id = ?")
+          .get(election.id, customId);
+        if (clash) {
+          throw new Error(`Duplicate candidate ID in import: ${customId}`);
+        }
+      }
+      const result = insert.run(
+        c.name,
+        year || c.year || "",
+        election.id,
+        customId || null
+      );
+      const row = db.prepare("SELECT * FROM candidates WHERE id = ?").get(result.lastInsertRowid);
+      imported.push({
+        id: candidatePublicId(row),
+        name: c.name,
+        year: year || c.year || "",
+      });
     }
     return imported;
   });
@@ -295,7 +536,11 @@ app.post("/api/candidates/import", authenticate, requireRole("admin", "it_admin"
     const imported = importAll();
     res.json({ success: true, imported, count: imported.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const msg = String(err.message || err);
+    if (msg.includes("Duplicate candidate ID")) {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -345,3 +590,4 @@ if (fs.existsSync(distDir)) {
 app.listen(PORT, () => {
   console.log(`Voting server running on http://localhost:${PORT}`);
 });
+

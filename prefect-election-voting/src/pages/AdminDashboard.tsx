@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useElection } from "@/lib/electionContext";
-import { Candidate } from "@/lib/mockData";
+import { Candidate, Teacher } from "@/lib/mockData";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,26 +10,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BarChart, Users, Vote, Settings, Download, Power, PlusCircle, Trophy, Star, Trash2, Pencil, Image, AlertTriangle } from "lucide-react";
+import { BarChart, Users, Vote, Settings, Download, Power, PlusCircle, Trophy, Star, Trash2, Pencil, Image, AlertTriangle, KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { isLoggedIn, isAdmin, votingOpen, toggleVoting, candidates, results, allVotes, teachers, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, addTeacher, removeTeacher } = useElection();
+  const { isLoggedIn, isAdmin, isLoading, votingOpen, toggleVoting, candidates, results, allVotes, teachers, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, addTeacher, removeTeacher, setTeacherPassword } = useElection();
   const navigate = useNavigate();
-  const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
+  const [newCandidate, setNewCandidate] = useState({ name: "", id: "" });
   const [newTeacherEmail, setNewTeacherEmail] = useState("");
   
   // Edit candidate state
   const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
-  const [editForm, setEditForm] = useState({ id: "", name: "", year: "" });
+  const [editForm, setEditForm] = useState({ id: "", name: "" });
+  
+  // Validation helpers
+  const isValidName = (name: string) => /^[a-zA-Z\s\-']+$/.test(name.trim());
+  const isValidId = (id: string) => /^\d{1,4}$/.test(id.trim());
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [teacherForPassword, setTeacherForPassword] = useState<Teacher | null>(null);
+  const [teacherPasswordForm, setTeacherPasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn || !isAdmin) {
       navigate("/login");
     }
-  }, [isLoggedIn, isAdmin, navigate]);
+  }, [isLoading, isLoggedIn, isAdmin, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || !isAdmin) {
     return null;
@@ -43,16 +58,24 @@ const AdminDashboard = () => {
       toast.error("Please enter a name and ID.");
       return;
     }
+    if (!isValidName(newCandidate.name)) {
+      toast.error("Name can only contain letters, spaces, hyphens, and apostrophes.");
+      return;
+    }
+    if (!isValidId(newCandidate.id)) {
+      toast.error("Student ID must be 1-4 digits only.");
+      return;
+    }
     if (candidates.some((c) => c.id === newCandidate.id)) {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    const success = await addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: newCandidate.year });
+    const success = await addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: "" });
     if (!success) {
       toast.error("Failed to add candidate.");
       return;
     }
-    setNewCandidate({ name: "", id: "", year: "" });
+    setNewCandidate({ name: "", id: "" });
     toast.success("Candidate added successfully.");
   };
 
@@ -76,7 +99,7 @@ const AdminDashboard = () => {
 
   const handleEditCandidate = (candidate: Candidate) => {
     setEditingCandidate(candidate);
-    setEditForm({ id: candidate.id, name: candidate.name, year: candidate.year || "" });
+    setEditForm({ id: candidate.id, name: candidate.name });
   };
 
   const handleSaveEdit = async () => {
@@ -85,14 +108,22 @@ const AdminDashboard = () => {
       toast.error("Name and ID are required.");
       return;
     }
+    if (!isValidName(editForm.name)) {
+      toast.error("Name can only contain letters, spaces, hyphens, and apostrophes.");
+      return;
+    }
+    if (!isValidId(editForm.id)) {
+      toast.error("Student ID must be 1-4 digits only.");
+      return;
+    }
     // Check if new ID conflicts with another candidate
     if (editForm.id !== editingCandidate.id && candidates.some((c) => c.id === editForm.id)) {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
+    const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name });
     if (!success) {
-      toast.error("Candidate editing is not supported by backend API yet.");
+      toast.error("Could not update candidate.");
       return;
     }
     setEditingCandidate(null);
@@ -236,7 +267,7 @@ const AdminDashboard = () => {
                 <PlusCircle className="w-5 h-5 text-accent" />
                 Add New Candidate
               </h3>
-              <div className="grid sm:grid-cols-3 gap-4 mb-4">
+              <div className="grid sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <Label className="text-card-foreground">Student ID</Label>
                   <Input className="mt-1" placeholder="e.g. 4291" value={newCandidate.id} onChange={(e) => setNewCandidate({ ...newCandidate, id: e.target.value })} />
@@ -244,10 +275,6 @@ const AdminDashboard = () => {
                 <div>
                   <Label className="text-card-foreground">Full Name</Label>
                   <Input className="mt-1" placeholder="Student name" value={newCandidate.name} onChange={(e) => setNewCandidate({ ...newCandidate, name: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-card-foreground">Year Group</Label>
-                  <Input className="mt-1" placeholder="e.g. Year 13" value={newCandidate.year} onChange={(e) => setNewCandidate({ ...newCandidate, year: e.target.value })} />
                 </div>
               </div>
               <Button onClick={handleAddCandidate} className="bg-gradient-navy text-primary-foreground font-semibold hover:opacity-90 gap-2">
@@ -281,7 +308,7 @@ const AdminDashboard = () => {
                       </div>
                       <div>
                         <p className="font-medium text-foreground">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">ID: {c.id}{c.year && ` • ${c.year}`}</p>
+                        <p className="text-xs text-muted-foreground">ID: {c.id}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
@@ -342,6 +369,18 @@ const AdminDashboard = () => {
                         <Badge variant="outline" className={t.hasVoted ? "text-success border-success/30" : "text-muted-foreground"}>
                           {t.hasVoted ? "Voted" : "Not voted"}
                         </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-foreground"
+                          title="Set password"
+                          onClick={() => {
+                            setTeacherForPassword(t);
+                            setTeacherPasswordForm({ newPassword: "", confirmPassword: "" });
+                          }}
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </Button>
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={async () => {
                           const success = await removeTeacher(t.id);
                           if (!success) {
@@ -394,15 +433,89 @@ const AdminDashboard = () => {
               <Label>Full Name</Label>
               <Input className="mt-1" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
             </div>
-            <div>
-              <Label>Year Group</Label>
-              <Input className="mt-1" value={editForm.year} onChange={(e) => setEditForm({ ...editForm, year: e.target.value })} />
-            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditingCandidate(null)}>Cancel</Button>
             <Button onClick={handleSaveEdit} className="bg-gradient-navy text-primary-foreground font-semibold hover:opacity-90">
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set teacher password */}
+      <Dialog
+        open={!!teacherForPassword}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTeacherForPassword(null);
+            setTeacherPasswordForm({ newPassword: "", confirmPassword: "" });
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Set teacher password</DialogTitle>
+            <DialogDescription>
+              {teacherForPassword ? (
+                <>Set a new login password for {teacherForPassword.name} ({teacherForPassword.email}).</>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>New password</Label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="new-password"
+                value={teacherPasswordForm.newPassword}
+                onChange={(e) => setTeacherPasswordForm((f) => ({ ...f, newPassword: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Confirm password</Label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="new-password"
+                value={teacherPasswordForm.confirmPassword}
+                onChange={(e) => setTeacherPasswordForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setTeacherForPassword(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-gradient-navy text-primary-foreground font-semibold hover:opacity-90"
+              onClick={async () => {
+                if (!teacherForPassword) return;
+                const { newPassword, confirmPassword } = teacherPasswordForm;
+                if (!newPassword.trim()) {
+                  toast.error("Please enter a new password.");
+                  return;
+                }
+                if (newPassword.length < 6) {
+                  toast.error("Password must be at least 6 characters.");
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  toast.error("Passwords do not match.");
+                  return;
+                }
+                const success = await setTeacherPassword(teacherForPassword.id, newPassword);
+                if (!success) {
+                  toast.error("Failed to update password.");
+                  return;
+                }
+                toast.success("Password updated.");
+                setTeacherForPassword(null);
+                setTeacherPasswordForm({ newPassword: "", confirmPassword: "" });
+              }}
+            >
+              Save password
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -433,3 +546,4 @@ const AdminDashboard = () => {
 };
 
 export default AdminDashboard;
+

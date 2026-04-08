@@ -14,7 +14,7 @@ import {
   Upload, FileSpreadsheet, Image, Users, PlusCircle, Trash2, Search,
   FolderUp, CheckCircle, AlertCircle, X, Eye, Loader2, Pencil,
 } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
+import { getApiBaseUrl } from "@/lib/api";
 
 interface ParsedCandidate {
   id: string;
@@ -23,11 +23,15 @@ interface ParsedCandidate {
 }
 
 const ITAdminDashboard = () => {
-  const { isLoggedIn, isITAdmin, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
+  const { isLoggedIn, isITAdmin, isLoading, candidates, addCandidate, removeCandidate, removeAllCandidates, updateCandidate, updateCandidatePhoto, refreshData } = useElection();
   const navigate = useNavigate();
 
-  const [newCandidate, setNewCandidate] = useState({ name: "", id: "", year: "" });
+  const [newCandidate, setNewCandidate] = useState({ name: "", id: "" });
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Validation helpers
+  const isValidName = (name: string) => /^[a-zA-Z\s\-']+$/.test(name.trim());
+  const isValidId = (id: string) => /^\d{1,4}$/.test(id.trim());
   const [xlsxFile, setXlsxFile] = useState<File | null>(null);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
@@ -37,13 +41,12 @@ const ITAdminDashboard = () => {
   const [parsedCandidates, setParsedCandidates] = useState<ParsedCandidate[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [importYear, setImportYear] = useState("Year 12");
   const [showPreview, setShowPreview] = useState(false);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
 
   // Edit candidate state
   const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
-  const [editForm, setEditForm] = useState({ id: "", name: "", year: "" });
+  const [editForm, setEditForm] = useState({ id: "", name: "" });
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const editPhotoInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,10 +54,19 @@ const ITAdminDashboard = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isLoggedIn || !isITAdmin) {
       navigate("/login");
     }
-  }, [isLoggedIn, isITAdmin, navigate]);
+  }, [isLoading, isLoggedIn, isITAdmin, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn || !isITAdmin) {
     return null;
@@ -69,16 +81,24 @@ const ITAdminDashboard = () => {
       toast.error("Please enter a name and Student ID.");
       return;
     }
+    if (!isValidName(newCandidate.name)) {
+      toast.error("Name can only contain letters, spaces, hyphens, and apostrophes.");
+      return;
+    }
+    if (!isValidId(newCandidate.id)) {
+      toast.error("Student ID must be 1-4 digits only.");
+      return;
+    }
     if (candidates.some((c) => c.id === newCandidate.id)) {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    const success = await addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: newCandidate.year });
+    const success = await addCandidate({ id: newCandidate.id, name: newCandidate.name, photo: "", year: "" });
     if (!success) {
       toast.error("Failed to add candidate.");
       return;
     }
-    setNewCandidate({ name: "", id: "", year: "" });
+    setNewCandidate({ name: "", id: "" });
     toast.success("Candidate added successfully.");
   };
 
@@ -93,7 +113,7 @@ const ITAdminDashboard = () => {
 
   const handleEditCandidate = (candidate: Candidate) => {
     setEditingCandidate(candidate);
-    setEditForm({ id: candidate.id, name: candidate.name, year: candidate.year || "" });
+    setEditForm({ id: candidate.id, name: candidate.name });
   };
 
   const handleSaveEdit = async () => {
@@ -102,13 +122,21 @@ const ITAdminDashboard = () => {
       toast.error("Name and ID are required.");
       return;
     }
+    if (!isValidName(editForm.name)) {
+      toast.error("Name can only contain letters, spaces, hyphens, and apostrophes.");
+      return;
+    }
+    if (!isValidId(editForm.id)) {
+      toast.error("Student ID must be 1-4 digits only.");
+      return;
+    }
     if (editForm.id !== editingCandidate.id && candidates.some((c) => c.id === editForm.id)) {
       toast.error("A candidate with this ID already exists.");
       return;
     }
-    const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name, year: editForm.year });
+    const success = await updateCandidate(editingCandidate.id, { id: editForm.id, name: editForm.name });
     if (!success) {
-      toast.error("Candidate editing is not supported by backend API yet.");
+      toast.error("Could not update candidate.");
       return;
     }
     setEditingCandidate(null);
@@ -164,7 +192,7 @@ const ITAdminDashboard = () => {
       const formData = new FormData();
       formData.append("file", xlsxFile);
 
-      const res = await fetch(`${API_BASE_URL}/api/candidates/parse-xlsx`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/candidates/parse-xlsx`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -221,13 +249,13 @@ const ITAdminDashboard = () => {
 
     try {
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`${API_BASE_URL}/api/candidates/import`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/candidates/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ candidates: parsedCandidates, year: importYear }),
+        body: JSON.stringify({ candidates: parsedCandidates }),
       });
 
       if (!res.ok) {
@@ -346,7 +374,7 @@ const ITAdminDashboard = () => {
                 <PlusCircle className="w-5 h-5 text-accent" />
                 Add New Candidate
               </h3>
-              <div className="grid sm:grid-cols-3 gap-4 mb-4">
+              <div className="grid sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <Label className="text-card-foreground">Student ID</Label>
                   <Input className="mt-1" placeholder="e.g. 4291" value={newCandidate.id} onChange={(e) => setNewCandidate({ ...newCandidate, id: e.target.value })} />
@@ -354,10 +382,6 @@ const ITAdminDashboard = () => {
                 <div>
                   <Label className="text-card-foreground">Full Name</Label>
                   <Input className="mt-1" placeholder="Student name" value={newCandidate.name} onChange={(e) => setNewCandidate({ ...newCandidate, name: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-card-foreground">Year Group</Label>
-                  <Input className="mt-1" placeholder="e.g. Year 13" value={newCandidate.year} onChange={(e) => setNewCandidate({ ...newCandidate, year: e.target.value })} />
                 </div>
               </div>
               <Button onClick={handleAddCandidate} className="bg-gradient-navy text-primary-foreground font-semibold hover:opacity-90 gap-2">
@@ -395,7 +419,7 @@ const ITAdminDashboard = () => {
                       </div>
                       <div>
                         <p className="font-medium text-foreground">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">ID: {c.id}{c.year && ` • ${c.year}`}</p>
+                        <p className="text-xs text-muted-foreground">ID: {c.id}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -431,12 +455,6 @@ const ITAdminDashboard = () => {
                 <p className="text-sm text-muted-foreground mb-4">
                   Upload the Excel file exactly as exported from the school system. The system will automatically extract <strong>Pupil 1st name</strong> and <strong>Pupil surname</strong> columns and combine them into candidate names.
                 </p>
-              </div>
-
-              {/* Year group input */}
-              <div className="max-w-xs">
-                <Label className="text-card-foreground">Year Group for Import</Label>
-                <Input className="mt-1" placeholder="e.g. Year 12" value={importYear} onChange={(e) => setImportYear(e.target.value)} />
               </div>
 
               {/* Drop zone */}
@@ -627,10 +645,6 @@ const ITAdminDashboard = () => {
               <Label>Full Name</Label>
               <Input className="mt-1" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
             </div>
-            <div>
-              <Label>Year Group</Label>
-              <Input className="mt-1" value={editForm.year} onChange={(e) => setEditForm({ ...editForm, year: e.target.value })} />
-            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditingCandidate(null)}>Cancel</Button>
@@ -666,3 +680,4 @@ const ITAdminDashboard = () => {
 };
 
 export default ITAdminDashboard;
+efault ITAdminDashboard;
